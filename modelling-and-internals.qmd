@@ -20,11 +20,11 @@ In greta, we define a free state (here of length 3) where the values can be any 
 
 `b = ilogit(free_state[2])`
 
-`r = ilogit(free_state[3])`
+`c = ilogit(free_state[3])`
 
-where ilogit (the inverse of the logit function, implemented in base R as `plogis`) squishes any real-valued (unconstrained negative or positive) number to be between 0 and 1. Then in the `log_prob` function we compute the prior densities of `a` `b` and `r` and combine them with the likelihood.
+where ilogit (the inverse of the logit function, implemented in base R as `plogis`) squishes any real-valued (unconstrained negative or positive) number to be between 0 and 1. Then in the `log_prob` function we compute the prior densities of `a` `b` and `c` and combine them with the likelihood.
 
-However, the MCMC algorithm isn't looking at `a` `b` and `r`, it's looking at `free_state`. That way it can make proposals without worrying about contraints and getting samples rejected, which would bias it. It also lets us write out the MCMC sampling code in a generic way, since it's always just dealing with a vector of unconstrained parameters, no matter what the model. So the MCMC algorithm proposes a new value of `free_state` and `log_prob` gives it back a density, which it uses to accept/reject and make the next proposal.
+However, the MCMC algorithm isn't looking at `a` `b` and `c`, it's looking at `free_state`. That way it can make proposals without worrying about contraints and getting samples rejected, which would bias it. It also lets us write out the MCMC sampling code in a generic way, since it's always just dealing with a vector of unconstrained parameters, no matter what the model. So the MCMC algorithm proposes a new value of `free_state` and `log_prob` gives it back a density, which it uses to accept/reject and make the next proposal.
 
 The problem (just as in that Riemann sum example) is that unless we do an adjustment, that density is *wrong.* It doesn't account for the fact that we bijected the variables between proposing them and calculating the model density (and therefore stretched the parameter space). The adjustments we need are the log determinants of the jacobians of the bijectors.
 
