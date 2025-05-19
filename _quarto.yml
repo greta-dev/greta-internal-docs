@@ -1,0 +1,31 @@
+project:
+  type: book
+  output-dir: docs
+
+book:
+  title: "Internal documentation of greta"
+  author: "Nicholas Tierney & Nick Golding"
+  date: "2023/11/29"
+  chapters:
+    - index.qmd
+    - intro.qmd
+
+    # - part:
+    - motivating-greta.qmd
+    - bijectors.qmd
+    - case-study-normal.qmd
+    - forward-sampling-hybrid.qmd
+    - test-workflow.qmd
+    - modelling-and-internals.qmd
+    - technical-details.qmd
+    - references.qmd
+
+
+bibliography: references.bib
+
+format:
+  html:
+    theme: cosmo
+
+
+

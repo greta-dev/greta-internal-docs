@@ -1,0 +1,8 @@
+# What are "forward", "sampling", and "hybrid" modes?
+
+> Forward is called when doing inference, or when doing calculate deterministically (nsim=NULL) because there's no stochasticity in the algorithm, you start with the free state, and you push through all the deterministic operations
+ 
+> Sampling mode is when variables are sampled from their distributions (or specified by the user)
+ 
+> Hybrid mode is the awkward situation when doing posterior predictive simulation. It's forward mode pushing through deterministically from the pre-computed MCMC samples, but then sampling some new variables from their distributions conditional on that
+ 

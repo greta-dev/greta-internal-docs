@@ -1,0 +1,66 @@
+# Discussion on modelling and internals
+
+The following is a very helpful response from Nick Golding to Nick Tierney regarding coding up a negative binomial model, and using bijectors.
+
+Dealing with parameters that have constrained values. e.g., Standard deviation must be positive. Allowing for optimisers to propose any real number. The trade off is that in allowing for optimisers to propose any real number, the density proposed in the log_prob, will be incorrect. But it will be incorrect by a scaling factor, which, surprisingly, is knowable.
+
+`log_det_jacobian` is a function paired with the bijector function, that gives the correction to the density for a given value of the input to the bijector
+
+In your definition of the Bayesian NB model, you defined a beta prior on each of the variables. One consequence of that choice of prior is that you have constrained all of the parameter values to be between 0 and 1.
+
+(I'm guessing this was inadvertent - it makes more sense that a and b are unconstrained, and r is constrained to be positive since NB 'size' parameter can't be negative, but intercepts and slopes can be negative).
+
+> NT: This wasn't intentional, I just felt a bit more comfortable with the beta distribution as I knew a bit more about how to provide distribution shapes from the parameters.
+
+In your code, where you didn't use bijectors, if the optimiser proposes any value outside 0-1, the log prob can't be evaluated. In your code the optimiser managed to deal with it, but in general it's a bad idea and can bias MCMC samples. So we don't do that in greta.
+
+In greta, we define a free state (here of length 3) where the values can be any positive or negative value: `free_state` then we split apart the free state into three scalars: `free_state[1]` `free_state[2]` `free_state[3]`corresponding to the 3 parameters. Then because our model says they must be constrained between 0 and 1, we apply a bijector to get constrained versions:
+
+`a = ilogit(free_state[1])`
+
+`b = ilogit(free_state[2])`
+
+`r = ilogit(free_state[3])`
+
+where ilogit (the inverse of the logit function, implemented in base R as `plogis`) squishes any real-valued (unconstrained negative or positive) number to be between 0 and 1. Then in the `log_prob` function we compute the prior densities of `a` `b` and `r` and combine them with the likelihood.
+
+However, the MCMC algorithm isn't looking at `a` `b` and `r`, it's looking at `free_state`. That way it can make proposals without worrying about contraints and getting samples rejected, which would bias it. It also lets us write out the MCMC sampling code in a generic way, since it's always just dealing with a vector of unconstrained parameters, no matter what the model. So the MCMC algorithm proposes a new value of `free_state` and `log_prob` gives it back a density, which it uses to accept/reject and make the next proposal.
+
+The problem (just as in that Riemann sum example) is that unless we do an adjustment, that density is *wrong.* It doesn't account for the fact that we bijected the variables between proposing them and calculating the model density (and therefore stretched the parameter space). The adjustments we need are the log determinants of the jacobians of the bijectors.
+
+This is the bit of greta that uses the TFP bijectors interface to do the forward bijection (like the `ilogit`or `plogis()` bits), and to compute the LJD for that bijector, evaluated at that value of the free state (how 'stretched' the distribution is in that part of parameter space): <https://github.com/greta-dev/greta/blob/93aaf361c04591a0d20f73c25b6e6693023482fd/R/node_types.R#L356-L385>
+
+If you know what the bijection is (e.g. `ilogit`) you can work out the LJD function. `tfp.bijectors` is a library of those combinations, and also has inverse functions (where they exist) and the functionality to chain together bijectors and compute inverses and LJD functions for all the operations: <https://github.com/greta-dev/greta/blob/93aaf361c04591a0d20f73c25b6e6693023482fd/R/tf_functions.R#L591-L597>
+
+When doing inference on a Bayesian model, we always want to do the adjustment, otherwise we get the wrong solution. We should really have done it for your MAP estimation example, but it's a pain to do in base R. For maximum likelihood inference, we don't want it, since we don't want to interpret any bijection (for a constrained variable) as implying a distribution. This is why greta's `opt()` function has an `adjust` argument:
+
+> `adjust` - whether to account for Jacobian adjustments in the joint density. Set to `FALSE` (and do not use priors) for maximum likelihood estimates, or `TRUE` for maximum *a posteriori* estimates.
+
+So to correct some earlier misunderstandings (which I think you got past anyway):
+
+-   this adjustment is *not* to do with the normalising density of the posterior, that is and remains incredibly difficult and largely unnecessary to calculate when doing inference
+
+-   `plogis()` is the cumulative distribution function of the logistic distribution, but it's also the inverse logit function and we use it solely for squishing things to 0-1, not for the probabilistic implications
+
+-   "just writing the log_prob function (which here is the MAP density, right? Why not call this log_map?)": We do inference on the *joint density of the model*, which is the function mapping from a value of the free state to a scalar probability density value. We evaluate the function at a proposed value of the free state to return a probability. This is the same regardless of whether we're doing maximum likelihood (no priors or adjustments, to the joint density is just the likelihood at that free state value), maximum a posteriori (the joint density is the product of the likelihood, the prior densities, and any LJDs evaluated at that free state value), or Bayesian MCMC (same as MAP, but generating posterior samples, not finding the maximum of the density). So this function is called `log_prob` because it always returns a log probability for a given value of the free state.
+
+You mentioned something about 'transforming back' from the 0-1 scale to the free state scale. That's not what the adjustments are doing (as above they are quantifying the 'stretch' in the density implied by that transformation), but that is a thing we need to do sometimes: when specifying initial values for parameters. If a user provides a value for a parameter, or if we sample it from its prior, we need to transform it back to the free state, to build up the initial value. of the free state to start the inference algorithm. The code to do this is currently very janky and does not use tfp.bijectors at all: <https://github.com/greta-dev/greta/blob/93aaf361c04591a0d20f73c25b6e6693023482fd/R/inference.R#L556-L603>
+
+It also fails for some bijectors, because they are not coded up here:
+
+```{r}
+#| error: true
+library(greta)
+y <- t(rpois(3, 1))
+x <- simplex_variable(3)
+distribution(y) <- multinomial(sum(y), x)
+x_init <- t(runif(3))
+x_init <- x_init / sum(x_init)
+inits <- replicate(4, initials(x = x_init), simplify = FALSE)
+m <- model(x)
+draws <- mcmc(m, initial_values = inits)
+```
+
+> Error in fun(data) : could not find function "fun"
+
+## 

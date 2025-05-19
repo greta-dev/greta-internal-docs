@@ -1,0 +1,9 @@
+# Introduction
+
+This book is written with three personas in mind:
+
+- Silvia started doing data science after her psychology degree and hasn't looked back. She has spent three years doing increasingly advanced statistical modelling, she wants to learn how to implement Bayesian statistical models. This material will fill in the gaps of how statistical methods are implemented in software, and help her write her own greta code to write Bayesian statistical models.
+
+- Prasanna is studying computer science at college. She has learned a bit about the theory of MCMC and Bayesian statistics, but doesn’t feel she understands how they work. This material will give her a better understanding of these methods, how and why they are implemented, and how to design new ones.
+
+- Leonard is an academic working in a statistics department, teaching introductory Bayesian methods, and also a course on building and designing statistical software. They want to use greta in the introductory course, but find that many books don't discuss the details on design decisions and processes that go into building statistical software. This book will fill provide details on how greta implements certain algorithms, and give them starting points for designing their own smaller statistical software.

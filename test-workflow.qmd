@@ -1,0 +1,83 @@
+# Testing greta
+
+Inside the testing suite of greta, we have a variety of tests to ensure the code runs safely.
+
+This page will document and describe the intention of some of the more intensive tests
+
+## Posterior checks
+
+The posterior checks ensure the posteriors are being appropriately sampled.
+
+There are (currently) 7 test files:
+
+1. `test_posteriors_binomial.R`
+1. `test_posteriors_bivariate_normal.R`
+1. `test_posteriors_chi_squared.R`
+1. `test_posteriors_geweke.R`
+1. `test_posteriors_lkj.R`
+1. `test_posteriors_standard_uniform.R`
+1. `test_posteriors_wishart.R`
+
+We now detail what these tests primarily aim to do
+
+### `test_posteriors_binomial.R`
+
+### `test_posteriors_bivariate_normal.R`
+
+
+### `test_posteriors_chi_squared.R`
+
+
+### `test_posteriors_geweke.R`
+
+- Way of testing that mcmc sampler is sampling from the correct distribution
+- Really sensitive test - if sampler is slightly biased, errors will amplify, and we should see this really clearly.
+
+
+```
+# run a geweke test on a greta model, providing: 'sampler' a greta sampler (e.g.
+# hmc()), a greta 'model', a 'data' greta array used as the target in the model,
+# the two IID random number generators for the data generating function
+# ('p_theta' = generator for the prior, 'p_x_bar_theta' = generator for the
+# likelihood), 'niter' the number of MCMC samples to compare
+```
+
+We sample a normal (with rnorm) with p_theta.
+
+We then do MCMC on the model, which is specified as:
+
+- sampling from a normal, with a mu that is from a normal with mu 0, sd = 2.
+
+Essentially:
+
+```
+mu1 <- 0
+sd1 <- 2
+sd2 <- 1
+# theta ~ normal(mu1, sd1)
+# x[i] ~ normal(theta, sd2)
+```
+
+So we do one single draw of MCMC from that.
+
+Due to the mechanics of greta and TF:
+
+- data is normally fixed, but in greta, we need to change the data at each iteration of the sampler, and then recompile the relevant tensorflow components.
+
+
+#### references
+
+https://lips.cs.princeton.edu/testing-mcmc-code-part-2-integration-tests/
+
+http://qed.econ.queensu.ca/pub/faculty/ferrall/quant/papers/04_04_29_geweke.pdf 
+
+### `test_posteriors_lkj.R`
+
+
+### `test_posteriors_standard_uniform.R`
+
+
+### `test_posteriors_wishart.R`
+
+
+

@@ -1,0 +1,246 @@
+---
+title: "Understanding Bijectors"
+format: 
+  html:
+    self-contained: true
+    toc: true
+---
+
+```{r}
+library(tibble)
+```
+
+`greta` makes use of a feature in Tensorflow called a "Bijector", named afer the mathematical term, [bijection](https://en.wikipedia.org/wiki/Bijection). The key reason for using bijectors, is that they **allow for parameters that have constrained values**, like the standard deviation, which must be constrained to be positive. It's OK if that doesn't make sense right now, we will come back to it!
+
+In this section we discuss:
+
+-   What are bijectors?  @sec-what-are-bijectors
+
+-   Why do we want to bijectors? @sec-why-bijectors
+
+-   How do we use bijectors? @sec-how-bijectors
+
+-   Where are bijectors used in greta? @sec-bijectors-in-greta
+
+## What are bijectors? {#sec-what-are-bijectors}
+
+Googling "what are bijectors?", you'll find a bunch of things about Tensorflow, which I didn't find particularly useful when I was first learning about them. The ["bijection" wikipedia page](https://en.wikipedia.org/wiki/Bijection), is more helpful. We draw our explanation from there.
+
+Briefly (and perhaps less precisely), a bijector is a function that produces output that can be inverted to retrieve the original input. For example, multiplying by two and diving by two;
+
+```{r}
+x <- 1:10
+x_times_2 <- x*2
+x_times_2_div_2 <- x_times_2 / 2
+dat_times_two <- tibble(
+  x,
+  x_times_2,
+  x_times_2_div_2,
+  x == x_times_2_div_2
+)
+knitr::kable(
+  dat_times_two
+)
+```
+
+the square, and the square root;
+
+```{r}
+z <- 1:10
+z_squared <- z * z
+z_squared_sqrt <- sqrt(z_squared)
+dat_squared <- tibble(
+  z,
+  z_squared,
+  z_squared_sqrt,
+  z == z_squared_sqrt
+)
+knitr::kable(
+  dat_times_two
+)
+```
+
+the log and the exponent.
+
+```{r}
+a <- 1:10
+a_log <- log(a)
+a_log_exp <- exp(a_log)
+dat_logged <- tibble(
+  a,
+  a_log,
+  a_log_exp,
+  "a == a_log_exp" = dplyr::near(a, a_log_exp)
+)
+knitr::kable(
+  dat_logged
+)
+```
+
+Written another way, (and copying from wikipedia):
+
+> a function is bijective if and only if it is invertible. That is, a function $f: X \rightarrow Y$ is bijective if and only if there is a function $g: Y \rightarrow X$, the inverse of $f$, such that each of the two ways for composing the two functions produces an identity function: $g(f(x)) = x$, and $f(g(y)) = y$.
+
+Let's demonstrate this with the square and the square root:
+
+```{r}
+square <- function(x) x * x
+
+vec <- 1:10
+
+sqrt(square(vec))
+square(sqrt(vec))
+```
+
+And let's create a bijection function that holds onto these functions. We will call the $f(x)$ function "forward", and the $g(x)$ function, "inverse".
+
+```{r}
+bijector <- function(forward, inverse){
+  list(
+    forward = forward,
+    inverse = inverse
+  )
+}
+
+biject_square <- bijector(square, sqrt)
+biject_square$forward(1:10)
+biject_square$inverse(1:10)
+biject_square$inverse(biject_square$forward(1:10))
+```
+
+And let's check that these are invertible by creating a little bijector checking function, `is_bijector`, borrowing from our definition earlier
+
+```{r}
+is_bijector <- function(x, bijector){
+  f <- bijector$forward
+  g <- bijector$inverse
+  y <- f(x)
+  forward_identity <- all(dplyr::near(x, g(f(x))))
+  invert_identity <- all(dplyr::near(y, f(g(y))))
+  is_bijector <- all(forward_identity, invert_identity)
+  is_bijector
+}
+```
+
+This helps us realise that the square is only a bijector for positive numbers:
+
+```{r}
+is_bijector(0:10, biject_square)
+```
+
+And not for negative numbers
+
+```{r}
+# this will not work for negative numbers
+is_bijector(-10:10, biject_square)
+```
+
+Since
+
+```{r}
+sqrt(square(-10))
+```
+
+And we do not recover -10
+
+::: callout-warning
+
+### Apparently the exponent and log aren't bijectors for Real numbers?
+
+For negative numbers, we can use the exponent and log:
+
+```{r}
+biject_exp <- bijector(exp, log)
+biject_exp$forward(-10:10)
+biject_exp$inverse(biject_exp$forward(-10:10))
+
+is_bijector(1:10, biject_exp)
+is_bijector(-10:10, biject_exp)
+```
+
+However, this is noted in the wikipedia page as being incorrect, since there is no x in $\mathbb{R}$ such that $g(x) = −1$, showing that $g$ is not onto (surjective).
+:::
+
+Another useful bijector is the logistic function (aka sigmoid) and its inverse, the logit function. The Logistic function can be written as:
+
+$$
+f(x) = \frac{1}{1 + e^{-x}}
+$$
+
+And the logit can be written as:
+
+$$
+ln(\frac{x}{1-x})
+$$
+
+```{r}
+logistic <- function(x){
+  1 / (1 + exp(-x))
+}
+
+logit <- function(x){
+  log(x / (1 - x))
+}
+```
+
+```{r}
+biject_logistic <- bijector(forward = logistic,
+                            inverse = logit)
+
+vec <- seq(-1, 1, by = 0.1)
+biject_logistic$forward(vec)
+biject_logistic$inverse(vec)
+biject_logistic$inverse(biject_logistic$forward(vec))
+is_bijector(-3:3, biject_logistic)
+```
+
+The logistic and the logit functions are useful as they work for all positive and negative numbers. We will get into more detail on this later on, but suppose that inside an optimisation method, we are trying to estimate the value of the standard deviation, which must strictly be positive. As the optimisation model proposes new values, we want to ensure that these negative values don't There could be some proposed values that are negative, and
+
+```{r}
+proposed_value <- -1.5
+biject_logistic$forward(proposed_value)
+biject_logistic$inverse(biject_logistic$forward(proposed_value))
+```
+
+Hopefully now you have a working knowledge of bijectors. However, there is another very interesting component to bijectors and their use in Tensorflow.
+
+The log of the absolute value of the determinant of the matrix of all first-order partial derivatives of the inverse function
+
+::: {.callout-warning}
+
+A note on math language
+
+Wikipedia has the following definition of a bijector:
+
+> For a [binary relation](https://en.wikipedia.org/wiki/Binary_relation "Binary relation") pairing elements of set *X* with elements of set *Y* to be a bijection, four properties must hold:
+>
+> 1.  each element of *X* must be paired with at least one element of *Y*,
+>
+> 2.  no element of *X* may be paired with more than one element of *Y*,
+>
+> 3.  each element of *Y* must be paired with at least one element of *X*, and
+>
+> 4.  no element of *Y* may be paired with more than one element of *X*.
+>
+> Satisfying properties (1) and (2) means that a pairing is a [function](https://en.wikipedia.org/wiki/Function_(mathematics) "Function (mathematics)") with [domain](https://en.wikipedia.org/wiki/Domain_of_a_function "Domain of a function") *X*. It is more common to see properties (1) and (2) written as a single statement: Every element of *X* is paired with exactly one element of *Y*. Functions which satisfy property (3) are said to be "[onto](https://en.wikipedia.org/wiki/Onto "Onto") *Y*" and are called [surjections](https://en.wikipedia.org/wiki/Surjective_function "Surjective function") (or *surjective functions*). Functions which satisfy property (4) are said to be "[one-to-one functions](https://en.wikipedia.org/wiki/One-to-one_function "One-to-one function")" and are called [injections](https://en.wikipedia.org/wiki/Injective_function "Injective function") (or *injective functions*).^[\[2\]](https://en.wikipedia.org/wiki/Bijection#cite_note-2)^ With this terminology, a bijection is a function which is both a surjection and an injection, or using other words, a bijection is a function which is both "one-to-one" and "onto".^[\[3\]](https://en.wikipedia.org/wiki/Bijection#cite_note-3)^
+
+My initial thoughts were:
+
+> Why isn't the language instead:
+>
+> 1.  each element of X must be paired with only one element of Y
+> 2.  Each element of Y must be paired only one element of X
+
+It seems strange to me to say, "at least one element of Y", which implies, "one or more elements of Y", and then later to say, "no element of Y may be paired with more than one element of X".
+
+However, looking at this now I can see the the formal nature of the mathematical definition is important. Overall, my language above I think gets at the essence of things, but isn't rigorous
+
+:::
+
+## Why do we want to bijectors? {#sec-why-bijectors}
+
+To motivate this, let's fit an example model, a negative binomial.
+
+## How do we use bijectors? {#sec-how-bijectors}
+
+## Where are bijectors used in greta? {#sec-bijectors-in-greta}

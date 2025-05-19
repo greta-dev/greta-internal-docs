@@ -1,0 +1,11 @@
+# morgue
+
+This is a section where I put things from the cutting room floor of other chapters into
+
+# greta design
+
+Other pieces of software that inspired the design of greta:
+
+<http://edwardlib.org/api/data>
+
+<https://gpflow.github.io/GPflow/develop/notebooks/getting_started/basic_usage.html>

@@ -1,0 +1,219 @@
+# Motivating greta
+
+## A model three ways
+
+To help motivate the desire for greta, we are going to focus on a task of writing out a statistical model for a Negative Binomial Generalised Linear Model, and serving it up three ways:
+
+1.  A *symbolic* representation of the model, in the standard statistical modelling notation at the top
+
+2.  Code to *simulate* values of y from that model
+
+3.  code to compute (unnormalised) *posterior density* of the model for a proposed set of parameters
+
+greta is basically just an interface for letting the user define the *symbolic* representation of the model (1) in interactive code using greta arrays. For example, the same NB model as written earlier could be written as:
+
+```{r}
+library(greta)
+library(tidyverse)
+# generating the data
+generate_data <- function(n_samples) {
+  x <- rnorm(n = n_samples, mean = 40, sd = 5)
+  a <- 0.1 
+  b <- 0.05
+  r <- 0.7
+  mu <- exp(a + b*x)
+  y <- rnbinom(n = n_samples, mu = mu, size = r)
+  dat <- tibble(x, y)
+  dat
+}
+dat <- generate_data(30)
+
+# define data
+x <- as_data(dat$x)
+y <- as_data(dat$y)
+
+# define priors
+alpha <- beta(2, 8)
+beta <- beta(0.2, 0.8)
+r_size <- beta(100, 40)
+
+# define mu + link (using `exp`)
+mu <- exp(alpha + beta * x)
+
+# define likelihood
+distribution(y) <- negative_binomial(mu, r_size)
+
+# put all these bits into a model object
+m <- model(y, mu, r_size, alpha, beta)
+
+# plot the DAG
+plot(m)
+```
+
+This then then has methods of **automatically** producing the other two types of code:
+
+- *simulating* the values of variables (from their priors or distributions), and all downstream operations (2) using `calculate()`, and
+
+- automagically creating a function that computes the (unnormalised) *posterior density* of the model for a given set of values of the variables (3). `greta` has an interface for fitting models, by using the internal `log_prob_function` it creates to do MCMC or optimisation.
+
+These two different modes of definition, _simulation_ and _posterior density_ correspond to the names of the tensors: 
+
+- `sampling_x_y` is a tensor defined in the graph to simulate values from the model, where the values of variables are sampled from their distributions.
+- `all_forward_x_y`is a tensor defined in the `log_prob_function`, since it computes *forward* from a set of variables proposed in the *free state* (unconstrained vector of variable values, like the `params` used in optimisation) to the joint density of the model.
+
+
+  <!-- - **questions**:  -->
+  <!--   - If there is *forward* mode, does this imply that there is a *backward* / *reverse* mode? Why not another name like *estimation*, since we are trying to estimate some parameters? -->
+  <!--   - When you say: *joint density of the model*, is this the density that we get from say adding the log likelihood and the log priors together? That's the joint density there? -->
+
+There is a third type of tensor definition mode in the dag object: `hybrid` (see here: <https://github.com/greta-dev/greta/blob/master/R/dag_class.R#L213-L224>) which comes up when doing *posterior simulation*, I.e.the user has a sample of the free state (from MCMC) and so wants to push those through the dag in `forward` mode rather than sampling from their priors, but then wants to sample the observed data (like your `y`) from the probability distribution assigned to it, rather than plugging in the data values
+
+Here's some greta code to demo those differences:
+
+```{r}
+# fake data
+x <- rnorm(n = 30, mean = 40, sd = 5)
+a <- 0.1 
+b <- 0.05
+r <- 0.7
+mu <- exp(a + b*x)
+y <- rnbinom(n = 30, mu = mu, size = r)
+```
+
+
+```{r}
+# greta model:
+ 
+library(greta)
+y_ga <- as_data(y)
+a_ga <- beta(2, 8)
+b_ga <- beta(0.2, 0.8)
+r_ga <- beta(100, 40)
+mu_ga <- exp(a_ga + b_ga * x)
+# from ?dnbinom, we can convert from the mu, size definition to prob, size
+# definition like this:
+# prob = size/(size+mu)
+## from the helpfile: An alternative parametrization (often used in ecology) is by the mean mu (see above), and size, the dispersion parameter, where prob = size/(size+mu). The variance is mu + mu^2/size in this parametrization.
+prob_ga <- r_ga/(r_ga + mu_ga)
+distribution(y_ga) <- negative_binomial(prob = prob_ga, size = r_ga)
+```
+
+
+```{r}
+log_prob <- function(free_state) {
+  a <- plogis(free_state[1])
+  r <- plogis(free_state[2])
+  b <- plogis(free_state[3])
+  mu <- exp(a + b * x)
+  llik <- sum(dnbinom(y, mu = mu, size = r, log = TRUE))
+  lpri <- dbeta(a, 2, 8, log = TRUE) +
+    dbeta(b, 0.2, 0.8, log = TRUE) + 
+    dbeta(r, 100, 40, log = TRUE)
+  llik + lpri
+}
+ 
+# compare greta and R solutions
+free_state <- c(0.5, 0.1, 0.2)
+ 
+log_prob(free_state)
+m <- model(a_ga, b_ga, r_ga)
+m$dag$tf_log_prob_function(t(matrix(free_state)))$unadjusted
+m$dag$tf_log_prob_function(t(matrix(free_state)))$adjusted
+```
+
+
+```{r}
+# simulate values from priors and negative binomial sampling distribution
+# (sampling mode)
+sims <- calculate(y_ga, nsim = 3)
+sims
+```
+
+
+```{r}
+# simulate values from negative binomial sampling distribution *conditional* on
+# posterior samples of parameters
+# (hybrid mode)
+draws <- mcmc(m)
+calculate(y_ga, nsim = 3, values = draws)
+```
+ 
+::: {.callout-tip}
+
+(From Nick Golding):
+
+Have a think about why those `plogis()` calls are in there. Once you work that out, see if you can understand why the unadjusted outputs of
+`tf_log_prob_function()` here. That's a harder one, and has to do with bijectors - worth reading through the relevant bits of the greta code base and reading the TF bijector docs.
+:::
+
+## Approximating an integral with a Riemann sum
+
+(From Nick Golding)
+
+This demo might help. Continuous probability distributions integrate to 1, so if we approximate the integral with a Riemann sum (e.g. using the midpoint rule
+<https://en.wikipedia.org/wiki/Riemann_sum#Midpoint_rule>) we should return
+something very close to 1. 
+
+Integrate z across: z ~ beta(3, 4)
+
+The beta is only defined between 0 and 1, so integrate over these values:
+
+```{r}
+z <- seq(0, 1, length.out = 100)
+```
+
+compute densities at these integration points
+
+```{r}
+densities <- dbeta(z, 3, 4)
+```
+
+Calculate the width of each bar, which you can get by the difference of the vector from 0:1, and calculating the mean
+
+```{r}
+diff_z <- diff(z)
+diff_z
+z_width <- mean(diff(z))
+z_width
+```
+
+We can then plot the densities, using the width we just calculated
+
+```{r}
+barplot(densities, width = z_width)
+```
+
+We can then calculate the areas associated with each bar, multiplying the density (the height of the function) by the width, then summing these to get the approximate integral
+
+```{r}
+areas <- densities * z_width
+approx_integral <- sum(areas)
+approx_integral
+```
+
+But if we try to define an unconstrained vector
+
+```{r}
+x <- seq(-10, 10, length.out = 100)
+```
+
+and transform it to the correct support
+
+```{r}
+z <- plogis(x)
+z
+```
+
+
+We get the wrong densities. 
+
+```{r}
+densities <- dbeta(z, 3, 4)
+x_width <- mean(diff(x))
+barplot(densities, width = x_width)
+areas <- densities * x_width
+approx_integral <- sum(areas)
+approx_integral
+```
+
+This is because the non-linear transformation (`plogis`) 'stretches' the distribution in different areas. Each of these densities needs a correction for the amount of stretching in order to get the correct (adjusted density).

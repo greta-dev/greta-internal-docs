@@ -1,0 +1,180 @@
+# Case Study: Sampling from a Normal
+
+To understand greta, we need to spend a little bit of time understanding the fundamental building blocks with greta. Here we borrow from the "technical details" vignette of greta, but extend it some.
+
+There are three main layers to how greta defines models:
+
+-   greta arrays
+-   nodes
+-   tensors
+
+Users create greta arrays, greta arrays define nodes, and these nodes then define tensors.
+
+## Drawing samples from the normal distribution
+
+Let's use an example of drawing samples from the normal distribution.
+
+In base R, we could do this with:
+
+```{r}
+r_samples <- rnorm(n = 5, mean = 0, sd = 1)
+r_samples
+```
+
+There are other packages for working with distributions, like [`distributional`](https://github.com/mitchelloharawild/distributional).
+
+We could create a "normal" object, `dist`, with `dist_normal()`, and then generate samples from that object, with `generate(dist)`:
+
+```{r}
+library(distributional)
+dist <- dist_normal(mean = 0, sd = 1)
+dist
+generate(dist, times = 5)
+```
+
+Here we `dist` is a distribution object, and we can call `generate` on it to get samples.
+
+How does this work? Under the hood, `dist_normal` creates a new class of a thing called "dist_normal":
+
+```{r}
+dist_normal
+```
+
+And then when we call `generate` on `dist_normal`, R uses a technique called S3 method dispatch to get the samples. Under the hood, what this boils down to, is that `generate(dist, times = 5)` is actually calling, `generate.dist_normal`. We can see the internals for `generate.dist_normal` like so:
+
+```{r}
+distributional:::generate.dist_normal
+```
+
+This is effectively the same as `rnorm` that we did above, just the interface is different. Why is it different? Well, the approach uses a different philosophy, focussing on creating distributions, and then performing actions on them: 
+
+- `generate` for getting samples
+- `density` for calculating densities. 
+
+The idea is that this is preferable to remembering `rnorm`, `dnorm`, and instead you internalise, `dist_normal`, and then `generate` and `density` as actions that you perform on these. It is a design choice, and part of the initial motivation behind this was to make it easier for people to learn about statistics and probability theory.
+
+Let's use greta to create a normal distribution.
+
+```{r}
+library(greta)
+greta_normal <- normal(mean = 0, sd = 1)
+greta_normal
+```
+
+Here, `greta_normal` is a greta array, which follows a normal distribution. Let's take samples from the greta array using `calculate`.
+
+```{r}
+g_norm_samples <- calculate(greta_normal, nsim = 5)
+g_norm_samples
+```
+
+This looks different to the other approaches for drawing samples. This is because greta does a lot more than draw samples from distributions. It is a rich modelling software, and this output has to have a certain output type to suit many different types of output.
+
+Let's unpack what is in `g_norm_samples` - it's a list
+
+```{r}
+class(g_norm_samples)
+```
+
+And each item in that list is an array:
+
+```{r}
+g_norm_samples$greta_normal
+class(g_norm_samples$greta_normal)
+```
+
+And if we look at the array, it is just a vector of numbers.
+
+```{r}
+g_norm_samples$greta_normal[,,1]
+class(g_norm_samples$greta_normal[,,1])
+```
+
+It doesn't know anything about how big it is yet, or how many samples. We can use the `calculate` function, asking to get 5 simulated values. Unlike `rnorm` or the `generate` example from `distributional`, we can't as easily dive into what happens with greta.
+
+This is because greta uses a different programming system to distributional, and to base R. Let's first unpack all the things that happen when we first create `greta_normal`:
+
+```{r}
+debugonce(normal)
+greta_normal <- normal(mean = 0, sd = 1)
+normal
+```
+
+It first uses the internal `distrib` function to create a distribution object:
+
+``` r
+distrib("normal", mean, sd, dim, truncation)
+```
+
+It creates an object generator:
+
+```         
+<normal_distribution> object generator
+  Inherits from: <distribution_node>
+  Public:
+    initialize: function (mean, sd, dim, truncation) 
+    tf_distrib: function (parameters, dag) 
+    clone: function (deep = FALSE) 
+  Parent env: <environment: namespace:greta>
+  Locked objects: TRUE
+  Locked class: FALSE
+  Portable: TRUE
+```
+
+Using an object oriented programming approach called [R6](). R6 sort of flips things around, you create objects, and perform functions with those objects. We could imagine a new distribution, based on R6:
+
+``` r
+normal$sample()
+normal$density()
+# ...and so on
+```
+
+The point is that `greta` uses a different approach to create objects.
+
+It creates a new distribution object with the `object$new()` function.
+
+This distribution node then gets the "user node"
+
+``` r
+# return the user-facing representation of the node as a greta array
+value <- distrib$user_node
+```
+
+It then converts this into a greta array,
+
+``` r
+as.greta_array(value)
+```
+
+Giving us:
+
+```{r}
+greta_normal
+```
+
+But we can see the distribution information that is has stored by looking at its attributes:
+
+```{r}
+attributes(greta_normal)
+```
+
+Note that this is a "variable node".
+
+The special "node" attribute is where a lot of special information about this distribution is stored, which is used in other internal components of greta.
+
+To explore, we can get the node attribute out and use it:
+
+```{r}
+normal_node <- attr(greta_normal, "node")
+normal_node
+```
+
+Note that this is a variable node, despite it being a distribution. It has a special distribution slot.
+
+## recap
+
+So, let's recap
+
+```{r}
+greta_normal <- normal(mean = 0, sd = 1)
+```

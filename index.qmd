@@ -1,0 +1,36 @@
+# Preface {.unnumbered}
+
+This is an online book covering the internals of the R package, greta, which implements a simple and scalable approach to statistical modelling in R. The aims of this book are:
+
+1. Motivate the need for a system like greta
+2. Provide documentation on greta internals
+3. Explain the details of how greta works
+4. Provide a discussion on the design of statistical software
+
+It is aimed at a variety of different audience members. From practiced greta users who want more information on execution details, those who want to develop and extend greta, or for those who want to understand it at a deeper level.
+
+A key feature of what makes greta powerful, unique, and complex, is the underlying way that it  links R objects to each other and talks to the tensor based computation engine, Tensorflow. On the surface, the R user never really has to worry about this, they just get to focus on creating a statistical model. Under the hood, there are some key features that allow this to happen, which include:
+
+- greta array/node objects that are pass-by-reference
+- Operation/distribution registration system, enabling tensor backends (e.g., TF2, Torch)
+- Inference method registration system, with multiple backends (TF2, Torch)
+- DAG objects and plotting
+- Representation system (enable dag to define with/without representations, and use differently for plotting)
+- TF and R versions of ops, distributions, and inference methods (copying over code)
+- Calculate functions for different backends
+- Arbitrary function definition (as_tf_function), compatible with TF2 and other backends
+
+The book is currently in a free form state, we are focussing on documenting various key parts of greta. In time we will link them together in a more concise, unified way. A lot of the pages so far are expanded notes from dialogue between Nick Golding (the creator of greta), and Nick Tierney (the maintainer of greta).
+
+
+Some of the other features we will cover are:
+
+- Why we need a system like greta
+- The fundamental architecture of how greta works
+- What greta arrays are
+- What nodes are and why they are needed
+- How nodes define the Tensorflow Graph
+- How the representations feature works
+- How DAGs are defined and used
+- The operation/distribution registration system
+- The inference method registration system
